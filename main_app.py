@@ -36,11 +36,9 @@ st.markdown("Comparación de modelos con métricas, curvas ROC y frontera de dec
 @st.cache_data
 def load_data():
     mnist = fetch_openml("mnist_784", version=1)
-    X = mnist.data / 255.0
-    y = mnist.target.astype(int)
+    X = mnist.data.to_numpy() / 255.0   # 👈 convertir a numpy
+    y = mnist.target.astype(int).to_numpy()
     return X, y
-
-X, y = load_data()
 
 # Para que no sea pesado en local
 sample_size = st.sidebar.slider("Cantidad de muestras", 2000, 10000, 5000)
