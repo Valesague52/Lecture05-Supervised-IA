@@ -4,9 +4,10 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-from sklearn import datasets
+from sklearn.datasets import fetch_openml
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import StandardScaler, label_binarize
+from sklearn.decomposition import PCA
 from sklearn.metrics import (
     accuracy_score,
     precision_score,
@@ -16,83 +17,73 @@ from sklearn.metrics import (
     roc_curve,
     auc
 )
-from sklearn.preprocessing import label_binarize
 
 from sklearn.linear_model import LogisticRegression
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.svm import SVC
 from sklearn.tree import DecisionTreeClassifier
 
+# ==========================
+# CONFIGURACIÓN APP
+# ==========================
+st.set_page_config(page_title="Clasificación MNIST", layout="wide")
+st.title("🔢 Clasificación de Dígitos - MNIST")
+st.markdown("Comparación de modelos con métricas, curvas ROC y frontera de decisión usando PCA.")
 
 # ==========================
-# CONFIGURACIÓN GENERAL
+# CARGAR DATASET MNIST
 # ==========================
-st.set_page_config(page_title="Clasificación Iris", layout="wide")
+@st.cache_data
+def load_data():
+    mnist = fetch_openml("mnist_784", version=1)
+    X = mnist.data / 255.0
+    y = mnist.target.astype(int)
+    return X, y
 
-st.title("🌸 Clasificación con Iris Dataset")
-st.markdown("Comparación de modelos de Machine Learning con visualización de métricas y fronteras de decisión.")
+X, y = load_data()
 
-# ==========================
-# CARGAR DATASET
-# ==========================
-iris = datasets.load_iris()
-X = iris.data
-y = iris.target
-feature_names = iris.feature_names
-class_names = iris.target_names
-
-df = pd.DataFrame(X, columns=feature_names)
-df["target"] = y
+# Para que no sea pesado en local
+sample_size = st.sidebar.slider("Cantidad de muestras", 2000, 10000, 5000)
+X = X[:sample_size]
+y = y[:sample_size]
 
 # ==========================
 # SIDEBAR - CONFIGURACIÓN
 # ==========================
-st.sidebar.header("⚙ Configuración")
+st.sidebar.header("⚙ Configuración del Modelo")
 
 modelo_nombre = st.sidebar.selectbox(
     "Selecciona el modelo",
     ("Logistic Regression", "KNN", "SVM", "Decision Tree")
 )
 
-test_size = st.sidebar.slider("Tamaño del test (%)", 10, 50, 30) / 100
+test_size = st.sidebar.slider("Tamaño del test (%)", 10, 40, 20) / 100
 
 # ==========================
-# SELECCIÓN DE FEATURES PARA FRONTERA
-# ==========================
-st.sidebar.header("Visualización de frontera")
-
-feature1 = st.sidebar.selectbox("Feature 1", feature_names, index=0)
-feature2 = st.sidebar.selectbox("Feature 2", feature_names, index=1)
-
-idx1 = feature_names.index(feature1)
-idx2 = feature_names.index(feature2)
-
-X_selected = X[:, [idx1, idx2]]
-
-# ==========================
-# DIVISIÓN Y ESCALADO
+# DIVISIÓN
 # ==========================
 X_train, X_test, y_train, y_test = train_test_split(
-    X_selected, y, test_size=test_size, random_state=42
+    X, y, test_size=test_size, random_state=42
 )
 
+# Escalado
 scaler = StandardScaler()
 X_train = scaler.fit_transform(X_train)
 X_test = scaler.transform(X_test)
 
 # ==========================
-# CREACIÓN DEL MODELO
+# CREACIÓN MODELO
 # ==========================
 if modelo_nombre == "Logistic Regression":
-    model = LogisticRegression()
+    model = LogisticRegression(max_iter=1000)
 elif modelo_nombre == "KNN":
     k = st.sidebar.slider("Número de vecinos (K)", 1, 15, 5)
     model = KNeighborsClassifier(n_neighbors=k)
 elif modelo_nombre == "SVM":
-    C = st.sidebar.slider("Parámetro C", 0.1, 10.0, 1.0)
+    C = st.sidebar.slider("Parámetro C", 0.1, 5.0, 1.0)
     model = SVC(C=C, probability=True)
 elif modelo_nombre == "Decision Tree":
-    depth = st.sidebar.slider("Profundidad máxima", 1, 10, 3)
+    depth = st.sidebar.slider("Profundidad máxima", 2, 20, 5)
     model = DecisionTreeClassifier(max_depth=depth)
 
 # ==========================
@@ -124,54 +115,80 @@ st.subheader("🔍 Matriz de Confusión")
 
 cm = confusion_matrix(y_test, y_pred)
 
-fig_cm, ax_cm = plt.subplots()
-sns.heatmap(cm, annot=True, fmt="d", cmap="Blues",
-            xticklabels=class_names,
-            yticklabels=class_names)
-plt.ylabel("Real")
-plt.xlabel("Predicho")
+fig_cm, ax_cm = plt.subplots(figsize=(8,6))
+sns.heatmap(cm, annot=False, cmap="Blues")
+ax_cm.set_xlabel("Predicho")
+ax_cm.set_ylabel("Real")
 st.pyplot(fig_cm)
 
 # ==========================
 # CURVA ROC (One-vs-Rest)
 # ==========================
-st.subheader("📈 Curva ROC (One-vs-Rest)")
+st.subheader("📈 Curvas ROC (One-vs-Rest)")
 
-y_test_bin = label_binarize(y_test, classes=[0, 1, 2])
+y_test_bin = label_binarize(y_test, classes=np.unique(y))
 y_score = model.predict_proba(X_test)
 
 fig_roc, ax_roc = plt.subplots()
 
-for i in range(3):
+for i in range(10):
     fpr, tpr, _ = roc_curve(y_test_bin[:, i], y_score[:, i])
     roc_auc = auc(fpr, tpr)
-    ax_roc.plot(fpr, tpr, label=f"{class_names[i]} (AUC = {roc_auc:.2f})")
+    ax_roc.plot(fpr, tpr, label=f"Clase {i} (AUC={roc_auc:.2f})")
 
-ax_roc.plot([0, 1], [0, 1], 'k--')
-ax_roc.set_xlabel("False Positive Rate")
-ax_roc.set_ylabel("True Positive Rate")
-ax_roc.legend()
+ax_roc.plot([0,1],[0,1],'k--')
+ax_roc.set_xlabel("FPR")
+ax_roc.set_ylabel("TPR")
+ax_roc.legend(fontsize=7)
 st.pyplot(fig_roc)
 
 # ==========================
-# FRONTERA DE DECISIÓN
+# FRONTERA DE DECISIÓN CON PCA
 # ==========================
-st.subheader("🧠 Frontera de decisión")
+st.subheader("🧠 Frontera de decisión (PCA 2D)")
 
-h = 0.02
-x_min, x_max = X_train[:, 0].min() - 1, X_train[:, 0].max() + 1
-y_min, y_max = X_train[:, 1].min() - 1, X_train[:, 1].max() + 1
+pca = PCA(n_components=2)
+X_train_pca = pca.fit_transform(X_train)
+X_test_pca = pca.transform(X_test)
+
+model_pca = model
+model_pca.fit(X_train_pca, y_train)
+
+h = 0.5
+x_min, x_max = X_train_pca[:,0].min()-1, X_train_pca[:,0].max()+1
+y_min, y_max = X_train_pca[:,1].min()-1, X_train_pca[:,1].max()+1
 xx, yy = np.meshgrid(
     np.arange(x_min, x_max, h),
     np.arange(y_min, y_max, h)
 )
 
-Z = model.predict(np.c_[xx.ravel(), yy.ravel()])
+Z = model_pca.predict(np.c_[xx.ravel(), yy.ravel()])
 Z = Z.reshape(xx.shape)
 
-fig, ax = plt.subplots()
+fig, ax = plt.subplots(figsize=(8,6))
 ax.contourf(xx, yy, Z, alpha=0.3)
-scatter = ax.scatter(X_test[:, 0], X_test[:, 1], c=y_test, edgecolor='k')
-ax.set_xlabel(feature1)
-ax.set_ylabel(feature2)
+scatter = ax.scatter(
+    X_test_pca[:,0],
+    X_test_pca[:,1],
+    c=y_test,
+    s=10,
+    edgecolor='k'
+)
+ax.set_xlabel("Componente Principal 1")
+ax.set_ylabel("Componente Principal 2")
 st.pyplot(fig)
+
+# ==========================
+# VISUALIZAR DÍGITOS
+# ==========================
+st.subheader("🖼 Ejemplos de imágenes")
+
+n_images = st.slider("Cantidad de imágenes a mostrar", 5, 25, 10)
+fig_img, axes = plt.subplots(1, n_images, figsize=(15,3))
+
+for i in range(n_images):
+    axes[i].imshow(X[i].reshape(28,28), cmap="gray")
+    axes[i].set_title(str(y[i]))
+    axes[i].axis("off")
+
+st.pyplot(fig_img)
